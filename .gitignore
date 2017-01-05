@@ -1,0 +1,6 @@
+#Output exec
+dct
+
+#Compiled python files
+*.pyc
+*.pyx
