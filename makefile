@@ -1,6 +1,6 @@
 CXX := g++
 
-ARGS := -O3 -Wall -Wextra -Wpedantic -std=c++1z
+ARGS := -Ofast -Wall -Wextra -Wpedantic -std=c++1z
 
 SOURCES := $(wildcard *.cpp)
 ASM     := $(patsubst %.cpp,assembly/%.s,$(SOURCES))

@@ -50,7 +50,7 @@ using Mat8x8f = Matrix<float, 8>;
 using Mat8x8d = Matrix<double, 8>;
 
 template <class T, std::size_t size>
-std::ostream& operator<<(std::ostream& os, const Matrix<T, size>& d) {
+inline std::ostream& operator<<(std::ostream& os, const Matrix<T, size>& d) {
 	for (auto& r : d.data) {
 		for (auto& c : r) {
 			std::cout << c << ' ';
@@ -61,7 +61,7 @@ std::ostream& operator<<(std::ostream& os, const Matrix<T, size>& d) {
 	return os;
 }
 template <class T, class T2, size_t size>
-Matrix<decltype(T{} * T2{}), size> operator*(Matrix<T, size>& left, Matrix<T2, size>& right) {
+inline Matrix<decltype(T{} * T2{}), size> operator*(Matrix<T, size>& left, Matrix<T2, size>& right) {
 	Matrix<decltype(T{} * T2{}), size> ret;
 
 	for (size_t i = 0; i < size; ++i) {
@@ -197,3 +197,15 @@ __attribute__((always_inline)) inline Matrix<float, 8> operator*(Matrix<float, 8
 	return ret;
 }
 #endif
+
+template <class T, size_t size>
+inline auto transpose(Matrix<T, size>& val) {
+	Matrix<T, size> transpose;
+	for (size_t i = 0; i < size; ++i) {
+		for (size_t j = 0; j < size; ++j) {
+			transpose[j][i] = val[i][j];
+		}
+	}
+
+	return transpose;
+}
