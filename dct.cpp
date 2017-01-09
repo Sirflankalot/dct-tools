@@ -1,60 +1,14 @@
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <functional>
 #include <initializer_list>
+#include <iomanip>
 #include <iostream>
 #include <utility>
+#include <vector>
 
-#ifdef __FMA__
-#include <immintrin.h>
-#endif
-
-template <class T, std::size_t size>
-class Matrix {
-  private:
-	using Data_t = std::array<std::array<T, size>, size>;
-	Data_t data;
-
-  public:
-	using value_type = Data_t;
-	Matrix() {
-		for (auto&& i : data) {
-			for (auto&& j : i) {
-				j = 0;
-			}
-		}
-	}
-	Matrix(const Data_t& input) : data(input){};
-	Matrix(const T (&input)[size][size]) {
-		for (size_t i = 0; i < size; ++i) {
-			for (size_t j = 0; j < size; ++j) {
-				data[i][j] = input[i][j];
-			}
-		}
-	};
-
-	Data_t& get_data() {
-		return data;
-	};
-
-	typename Data_t::value_type& operator[](int i) {
-		return data[i];
-	};
-
-	template <class Ti, size_t sizei>
-	friend std::ostream& operator<<(std::ostream& os, const Matrix<Ti, sizei>& d);
-};
-
-template <class T, std::size_t size>
-std::ostream& operator<<(std::ostream& os, const Matrix<T, size>& d) {
-	for (auto& r : d.data) {
-		for (auto& c : r) {
-			std::cout << c << ' ';
-		}
-		std::cout << '\n';
-	}
-
-	return os;
-}
+#include "dct_core.hpp"
 
 template <class T, size_t size>
 auto transpose(Matrix<T, size>& val) {
@@ -67,10 +21,6 @@ auto transpose(Matrix<T, size>& val) {
 
 	return transpose;
 }
-
-using Mat8x8i = Matrix<int, 8>;
-using Mat8x8f = Matrix<float, 8>;
-using Mat8x8d = Matrix<double, 8>;
 
 Matrix<float, 8> pixels{{
     //
@@ -309,70 +259,72 @@ Mat8x8f dctii(Mat8x8f& input) {
 	return result;
 }
 
-template <class T, class T2, size_t size>
-Matrix<decltype(T{} * T2{}), size> operator*(Matrix<T, size>& left, Matrix<T2, size>& right) {
-	Matrix<decltype(T{} * T2{}), size> ret;
+bool measure_time(size_t iterations) {
+	std::vector<Mat8x8f> input(iterations);
+	std::vector<Mat8x8f> output1(iterations);
+	std::vector<Mat8x8f> output2(iterations);
 
-	for (size_t i = 0; i < size; ++i) {
-		for (size_t j = 0; j < size; ++j) {
-			float sum = 0;
-			for (size_t k = 0; k < size; ++k) {
-				sum += left[i][k] * right[k][j];
+	for (size_t i = 0; i < iterations; ++i) {
+		input[i] = pixels4;
+		input[i][(i % 64) / 8][i % 8] += i / 64;
+	}
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	for (size_t i = 0; i < iterations; ++i) {
+		output1[i] = jpeg_dctii(input[i]);
+	}
+
+	auto mid = std::chrono::high_resolution_clock::now();
+
+	for (size_t i = 0; i < iterations; ++i) {
+		output2[i] = jpeg_idctii(output1[i]);
+	}
+
+	auto end = std::chrono::high_resolution_clock::now();
+
+	auto forward = std::chrono::duration_cast<std::chrono::nanoseconds>(mid - start);
+	auto backward = std::chrono::duration_cast<std::chrono::nanoseconds>(end - mid);
+
+	float for_time = std::chrono::duration_cast<std::chrono::milliseconds>(forward).count();
+	float for_per_element = float(forward.count()) / iterations;
+
+	float back_time = std::chrono::duration_cast<std::chrono::milliseconds>(backward).count();
+	float back_per_element = float(backward.count()) / iterations;
+
+	std::cout << "DCT-II: " << for_time << " ms for " << iterations << " iterations\n";
+	std::cout << for_per_element << " per iteration\n\n";
+
+	std::cout << "IDCT-II: " << back_time << " ms for " << iterations << " iterations\n";
+	std::cout << back_per_element << " per iteration\n\n";
+
+	bool valid = true;
+	float err = 0.0f;
+	for (size_t i = 0; i < iterations; ++i) {
+		for (size_t j = 0; j < 8; ++j) {
+			for (size_t k = 0; k < 8; ++k) {
+				float diff = std::abs(input[i][j][k] - output2[i][j][k]);
+				err = err < diff ? diff : err;
+				valid &= diff <= 0.01f;
 			}
-			ret[i][j] = sum;
 		}
 	}
 
-	return ret;
+	std::cout << "Valid " << std::boolalpha << valid << " Error: " << err << '\n';
+
+	return valid;
 }
 
-#ifdef __FMA__
-Matrix<float, 8> operator*(Matrix<float, 8>& left, Matrix<float, 8>& right) {
-	Matrix<float, 8> ret;
+int main(int argc, char**) {
+	std::tie(dct_regular, dct_transpose) = create_dct_matrices();
 
-	std::cout << "Blah\n";
-
-	float* a = &left.get_data()[0][0];
-	float* b = &right.get_data()[0][0];
-	float* r = &ret.get_data()[0][0];
-
-	__m256 a_line, b_line, r_line;
-	for (size_t i = 0; i < 64; i += 8) {
-		a_line = _mm256_broadcast_ss(a); // a_line = vec8(a[i])
-		b_line = _mm256_loadu_ps(b);
-		r_line = _mm256_mul_ps(a_line, b_line);
-		for (size_t j = 1; j < 8; ++j) {
-			a_line = _mm256_broadcast_ss(a + i + j);
-			b_line = _mm256_loadu_ps(b + j * 8);
-			r_line = _mm256_fmadd_ps(a_line, b_line, r_line);
-		}
-		_mm256_storeu_ps(r + i, r_line);
+	if (argc == 2) {
+		return measure_time(1'000'000);
 	}
 
-	return ret;
-}
-#endif
+	std::cout << "Regular dct matrix:\n" << dct_regular << '\n';
 
-Mat8x8f jpeg_dctii(Mat8x8f& input, Mat8x8f& reg, Mat8x8f& trans) {
-	auto x = reg * input;
-	auto y = x * trans;
-
-	return y;
-}
-
-Mat8x8f jpeg_idctii(Mat8x8f& input, Mat8x8f& reg, Mat8x8f& trans) {
-	auto x = trans * input;
-	auto y = x * reg;
-
-	return y;
-}
-
-int main() {
-	auto[regular, transpose] = create_dct_matrices();
-
-	std::cout << "Regular dct matrix:\n" << regular << '\n';
-
-	std::cout << "Transposed dct matrix:\n" << transpose << '\n';
+	std::cout << "Transposed dct matrix:\n" << dct_transpose << '\n';
 
 	std::cout << "Input Matrix:\n" << pixels4 << '\n';
 
@@ -383,7 +335,7 @@ int main() {
 		}
 	}
 
-	auto dctii = jpeg_dctii(pix, regular, transpose);
+	auto dctii = jpeg_dctii(pix);
 	std::cout << "Output Matrix:\n" << dctii << '\n';
 
 	auto quant = quantizize(dctii);
@@ -392,7 +344,7 @@ int main() {
 	auto dequant = dequantizize(quant);
 	std::cout << "Restored:\n" << dequant << '\n';
 
-	auto idctii = jpeg_idctii(dequant, regular, transpose);
+	auto idctii = jpeg_idctii(dequant);
 	for (size_t i = 0; i < 8; ++i) {
 		for (size_t j = 0; j < 8; ++j) {
 			idctii[i][j] = std::round(idctii[i][j] + 128);

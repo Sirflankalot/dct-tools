@@ -1,5 +1,10 @@
 #Output exec
 dct
+dct-sse
+dct-avx
+*.o
+*.s
+assembly/
 
 #Compiled python files
 *.pyc
